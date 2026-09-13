@@ -1,0 +1,409 @@
+---
+title: "Project 3"
+format: pdf
+editor: visual
+---
+
+In this project, which we will work on together in class, you will use logistic regression to explore a categorical variable from GSS (https://gssdataexplorer.norc.org).
+
+We will work informally with the GSS data, not following the full professional methodology. Social scientists analyzing the data would think more carefully about missing data. They would also use the "weights" supplied with the GSS to improve the accuracy of generalizations to the larger population of US adults. Any conclusions that we draw are recreational rather than scientific. If you want to make scientific claims based on the GSS data, you should learn about weights and about how better to handle missing data.
+
+# Set-up
+
+The following cell loads several packages:
+
+- the usual `tidyverse` package,
+- the `scales` package,
+- a new package, `readxl`, for reading Excel files, and
+- a new package, `broom`, for cleaning up regression output in Part 3.
+
+```{r}
+library(tidyverse)
+library(scales)
+library(readxl)
+library(broom)
+```
+
+We also define the logit and inverse logit functions for convenience in later calculations.
+
+```{r}
+logit <- function(p) log(p / (1 - p))
+invlogit <- function(x) exp(x) / (1 + exp(x))
+```
+
+Use the next cell to load the GSS data that you downloaded. The GSS web site provides .xlsx (Excel) and .dat (raw data) files. You may use whichever file you find more convenient. The `read_table` command in the next cell can load the .dat file. The `read_xlsx` command can load the .xlsx file.
+
+The .xlsx file is easier for humans to read. The .dat file uses numerical codes for data, which you may find it easier to work with in R.
+
+```{r}
+Space_data <- read_table(file = "GSS.dat", col_names = FALSE)
+Space_read <- read_xlsx("GSS.xlsx")
+```
+
+## Write a codebook
+
+The GSS variables can be confusing! One can sometimes misinterpret them just judging from the short names of the variables.
+
+Write a codebook explaining the variables that you picked for your analysis. Include the categories for categorical variables and information about the ranges of any quantitative variables.
+
+As you work on the other parts of this project, you may revise the codebook, adding information about further data processing steps. You may also decide to add or removed variables from your analysis. Whatever you do, your final codebook will be a guide to all the variables you use in your project.
+
+`year` - The years the data comes from, ranging from 1972 to 2022
+
+`age` - The age group of the respondent. Categories include:
+
+- `ageYoung` : Ages 17 to 40
+
+- `ageMiddle` : Ages 41 to 60
+
+- `ageOld` : Ages 61 and older
+
+`degree` - The highest education degree attained by the respondent. Categories include:
+
+- `Less than High School`
+
+- `High School`
+
+- `Bachelors`
+
+- `Graduate`
+
+`sex` - The gender of the respondent. Categories include:
+
+- `Female` : Denoted as 0
+
+- `Male` : Denoted as 1
+
+`politics` - The political views of the respondent. Categories include:
+
+- `Extremely Liberal`: Denoted as 1
+
+- `Liberal` : Denoted as 2
+
+- `Slightly Liberal` : Denoted as 3
+
+- `Moderate, middle of the road` : Denoted as 4
+
+- `Slightly Conservative` : Denoted as 5
+
+- `Conservative` : Denoted as 6
+
+- `Extremely Conservative` : Denoted as 7
+
+`natspac` - The respondent's opinions on US space exploration spending. Categories include:
+
+- `Too Little`
+
+- `About Right`
+
+- `Too much`
+
+`class_` - The class the respondent self-identifies with. Categories include:
+
+- `Lower class`
+
+- `Middle class`
+
+- `Working class`
+
+- `Upper class`
+
+## Preparing the response variable for analysis
+
+To prepare your data for analysis, begin with the following steps:
+
+### Step 1: clean response variable
+
+Filter your data set to remove any rows where the response variable is missing or has a value that you would like to omit.
+
+### Step 2: make a binary variable using your response variable
+
+Pick one of the levels (or a group of levels) of your response variable. Create a new binary variable that takes value 1 for cases where the variable has this level (or one of the levels in your group) and value 0 otherwise. You will fit logistic models for this binary variable.
+
+Write a paragraph explaining what you did in these two steps. What rows did you decide remove from your data set? Why did you remove them? What level or levels did you make "1" for your binary variable? What level or levels did you make "0"? Why did you group the variables in this way?
+
+```{r}
+summary_natspac <- Space_read %>%
+  filter(natspac %in% c("ABOUT RIGHT", "TOO LITTLE", "TOO MUCH")) %>%
+  mutate(too_much = case_when(natspac == "TOO MUCH" ~ 1,
+                              TRUE ~ 0)) %>%
+  group_by(year, too_much) %>%
+  summarize(n = n()) %>%  
+  mutate(N = sum(n),
+         prop = n / N,
+         se = sqrt(prop * (1 - prop) / N))
+
+
+```
+
+To prepare the data for logistic analysis, I first filtered the dataset to include only responses to the natspac variable that were clear and able to be interperated: "TOO LITTLE", "ABOUT RIGHT", or "TOO MUCH". I excluded any responses labeled "Inapplicable", "Do not Know/Cannot Choose", or missing, since these did not provide insights about participants' views on space spending and could bias the results. Next, I created a binary variable named too much, which was coded as 1 for participants who responded "TOO MUCH" and 0 for all other valid responses. This binary approach allowed me to focus specifically on those who felt that space spending was excessive, in comparison to those who thought it was just right or too little. Grouping the data this way allows us to have a more targeted analysis of how those with extreme opinions on space spending may differ from the general population.
+
+# Part 1: studying the variable without predictors
+
+## Summarizing the data
+
+Create a table with the following information for each GSS year for your binary response variable:
+
+- The number of responses for each level (1 and 0) of your response variable.
+- The proportion of responses for each category of your response variable.
+- The standard (sampling) error for each proportion. You have seen this sort of standard error in an earlier statistics class. You may have learned to calculate it using a formula or using the bootstrap method. We will use the following formula for the standard error:
+
+```         
+se = sqrt(p * (1 - p) / N)
+```
+
+where p is the proportion and where N is the total number of cases for the year. The standard error gives us a sense for the expected size of the sampling error, assuming that the GSS sample is a random sample of US adults.
+
+Have R display the first few rows of your table using the `head` command.
+
+```{r}
+head(summary_natspac)
+```
+
+## Graphing and interpreting the summarized data
+
+Make a graph of the proportions by year for your binary variable.
+
+- Use `geom_pointrange` instead of `geom_point` for your graph. This `ggplot` layer includes points (specified by the x and y coordinates) and a little line (the "range"), which you can use to show the uncertainty in the proportion coming from sampling error. To specify the little line, include `ymin = your_proportion_of_1 - standard_error` and `ymax = your_proportion_of_1 + standard_error` in your aesthetics. (You will need to change the names of the proportion and standard-error variables to match what you used in your table.)
+
+- Add an appropriate title and axis labels. Your title should point the reader toward what you see in the graph. Include a caption explain the meaning of the little lines in the graph.
+
+- You may use a percent scale on your vertical axis, if you wish.
+
+- Write a paragraph describing what you learn from this graphical exploration about your variable over time. Use numbers drawn from the graph to support your claims.
+
+- ggsave("part1_plot.jpg", height = 4, width = 7)
+
+```{r}
+ggplot(data = summary_natspac %>% filter(too_much == 1), mapping = aes(x = year, y = prop)) +
+  geom_pointrange(mapping = aes(ymin = prop - se, ymax = prop + se), color="#2A628F") +
+  scale_y_continuous(label = label_percent()) +
+  labs(x = "Year", y = "Percent Saying the U.S. Spends Too Much on Space Exploration",
+       title = "Public Concern Over Space Spending Has Declined Since the 1970s",
+       subtitle = "Support for space budget cuts dropped by 20 percentage points from 1973 to 2020,\nwith sharp declines between 1978–1980 and 1995–2020",
+       caption = "Source: General Social Survey. Vertical lines indicate +/- one standard sampling error") +
+    theme_minimal(base_family = "serif") +
+  theme(
+    plot.background = element_rect(fill = "#CFE3F2", color = NA),  # background color
+    panel.background = element_rect(fill = "#CFE3F2", color = NA),
+    plot.title = element_text(color = "#1D3557", face = "bold"),
+    plot.subtitle = element_text(color = "#457B9D"),
+    axis.title = element_text(color = "#1D3557"),
+    axis.text = element_text(color = "#1D3557"),
+    plot.caption = element_text(color = "#457B9D", face = "italic"))
+
+ggsave("part1_plot.jpg", height = 6, width = 8)
+```
+
+- Write a paragraph describing what you learn from this graphical exploration about your variable over time. Use numbers drawn from the graph to support your claims.
+
+  From the graphical exploration, it is clear that public opinion on US space spending has generally decreased over time. In 1974, a high percentage of people, around 63%, believed that the US was spending too much on space exploration. However, by 2022, this number had significantly dropped to about 25%, indicating a drastic shift in public perception. The decline is steady, with a noticable "flattening" at about 40% between 1980 and 2000. This suggests that, over time, people may have became more accepting of space exploration, which could be due to growing recognition of the benefits of space travel.
+
+# Part 2: Developing a logistic model
+
+## Create a logistic multiple regression model for predicting your response variable.
+
+- ~~You may make a smaller data set to work with by picking one GSS year, as I did in my example work. Or you may work with the entire pooled data set for all the GSS years.~~
+- Start with simple models, using single predictors, to help explore the data set. Use graphs or tables of proportions to illustrate your simple models. Graphs (with binned proportions) work best for quantitative predictor variables.
+- ~~For some variables, you may decide whether to treat the variable as categorical or as quantitative. Using a quantitative variable will simplify your model, since there will only be one coefficient for the variable instead of one coefficient for every category you are comparing to the reference level. It may not, however, always be appropriate to make a variable quantitative. If you do make a variable quantitative, be certain that the levels of the variable have a natural order. For example, it would be a mistake to use a quantitative scale 0 - 7 for political-party affiliation where 0 through 6 represent strong Democrat to strong Republican and where 7 represents "other political party."~~
+- Explore more complicated models, using multiple predictors. Record the models that you tried and indicate how you made decisions between models while developing your final model. I recommend using tools such as the residual deviance or the AIC to guide your decisions.
+- But do not make your model too complicated: no splines terms; no interaction terms. Those would be great to explore in a follow-up project.
+- Pick a final model that you will use below in Part 3.
+
+```{r}
+space_filtered <- Space_read %>%
+    filter(natspac %in% c("ABOUT RIGHT", "TOO LITTLE", "TOO MUCH")) %>%
+    mutate(too_much = case_when(natspac == "TOO MUCH" ~ 1, TRUE ~ 0)) %>%
+  filter(sex %in% c("MALE", "FEMALE")) %>%
+  mutate(sex= case_when(sex=="MALE" ~ 1, TRUE ~ 0)) %>%
+  mutate(politics = case_when(polviews == "Extremely liberal" ~ 1,
+                             polviews == "Liberal" ~ 2,
+                             polviews == "Slightly liberal" ~ 3,
+                             polviews == "Moderate, middle of the road" ~ 4,
+                             polviews == "Slightly conservative" ~ 5,
+                             polviews == "Conservative" ~ 6,
+                             polviews == "Extremely conservative" ~ 7)) %>%
+  mutate(age = case_when(age == "89 or older" ~ "old",
+                         age > 60 ~ "old",
+                         age > 40 ~ "middle",
+                         age > 17 ~ "young")) %>%
+  filter(degree %in% c("Bachelor's", "Graduate", "High school", "Less than high school")) %>%
+  filter(class_ %in% c("Lower class", "Middle class", "Upper class", "Working class")) %>%
+  filter(polviews %in% c("Extremely liberal", "Liberal","Slightly liberal","Moderate, middle of the road","Slightly conservative", "Conservative", "Extremely conservative"))
+```
+
+```{r}
+fit_1 <- glm(too_much ~ politics,
+            family = binomial(link = "logit"),
+            na.action = na.exclude, data = space_filtered %>% filter(year == 1982))
+
+summary(fit_1)
+```
+
+```{r}
+fit_2 <- glm(too_much ~ age,
+            family = binomial(link = "logit"),
+            na.action = na.exclude, data = space_filtered %>% filter(year == 1982))
+
+summary(fit_2)
+```
+
+```{r}
+fit_3 <- glm(too_much ~ sex,
+            family = binomial(link = "logit"),
+            na.action = na.exclude, data = space_filtered %>% filter(year == 1982))
+
+summary(fit_3)
+```
+
+```{r}
+fit_4 <- glm(too_much ~ class_,
+            family = binomial(link = "logit"),
+            na.action = na.exclude, data = space_filtered %>% filter(year == 1982))
+
+summary(fit_4)
+```
+
+```{r}
+fit_5 <- glm(too_much ~ degree,
+            family = binomial(link = "logit"),
+            na.action = na.exclude, data = space_filtered %>% filter(year == 1982))
+
+summary(fit_5)
+```
+
+```{r}
+fit_6 <- glm(too_much ~ politics+degree+sex,
+            family = binomial(link = "logit"),
+            na.action = na.exclude, data = space_filtered %>% filter(year == 1982))
+
+summary(fit_6)
+```
+
+```{r}
+fit_7 <- glm(too_much ~ politics+age+sex+degree+class_,
+            family = binomial(link = "logit"),
+            na.action = na.exclude, data = space_filtered %>% filter(year == 1982))
+
+summary(fit_7)
+```
+
+```{r}
+fit_8 <- glm(too_much ~ age+degree+sex+class_, 
+            family = binomial(link = "logit"),
+            na.action = na.exclude, data = space_filtered %>% filter(year == 1982))
+
+summary(fit_8)
+```
+
+- Summarize your model exploration procedures in a paragraph. What did you try? How did you pick your final model? Did you decide to drop any of the predictor variables that you considered originally? Did you decide to add any new predictor variables?
+
+When trying to figure out what model to use for my data, I tried 8 different versions. The first few versions of the model were testing just one variable in my data to see what the outcome would be. Something interesting that I noticed was that sex ended up having the lowest AIC, which surprised me because I would have assumed that the variables class or politics would have lower AIC scores. After making models with just one variable, I started to add more variables to test. I tested a model with just three of my variables, then a model with five, and then dropped down to four. Something interesting in my models is that the model with all of the variables used and only four variables used had almost the same AIC, 2027 vs 2027.9, and residual deviance, 2007 vs 2005.9. Due to how close the two are, I am going to do a binned residuals versus binned fitted graph for both models to see if I can see any big differences.
+
+## Assess how the model fits the data that you used to develop the model.
+
+- Graph of binned residuals versus binned fitted values, adding lines to indicate where you would expect 95% of residuals to fall for data simulated from the model. The number of bins you can use will depend on your predictor variables.
+
+  ```{r}
+  project_1982_1 <- space_filtered %>% filter(year == 1982) %>%
+    mutate(fitted = fitted(fit_8),
+           residual = residuals(fit_8, type = "response"))
+  ```
+
+```{r}
+project_1982_2 <- space_filtered %>% filter(year == 1982) %>%
+  mutate(fitted = fitted(fit_7),
+         residual = residuals(fit_7, type = "response"))
+```
+
+```{r}
+binned_resid1 <- project_1982_1 %>% mutate(fit_group = fitted %>% cut_number(8)) %>%
+  group_by(fit_group) %>% summarize(mean_fit = mean(fitted),
+                                    mean_resid = mean(residual),
+                                    prop = mean(too_much),
+                                    n = n(),
+                                    se = sqrt(mean_fit * (1 - mean_fit) / n))
+```
+
+```{r}
+binned_resid2 <- project_1982_2 %>% mutate(fit_group = fitted %>% cut_number(6)) %>%
+  group_by(fit_group) %>% summarize(mean_fit = mean(fitted),
+                                    mean_resid = mean(residual),
+                                    prop = mean(too_much),
+                                    n = n(),
+                                    se = sqrt(mean_fit * (1 - mean_fit) / n))
+```
+
+```{r}
+head(binned_resid1)
+head(binned_resid2)
+```
+
+```{r}
+ggplot(data = binned_resid1) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(mapping = aes(x = mean_fit, y = mean_resid)) +
+  geom_line(mapping = aes(x = mean_fit, y = 2*se)) +
+  geom_line(mapping = aes(x = mean_fit, y = -2*se)) +
+  labs(x = "mean fitted value in bin",
+       y = "mean residual in bin")
+
+ggplot(data = binned_resid2) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_point(mapping = aes(x = mean_fit, y = mean_resid)) +
+  geom_line(mapping = aes(x = mean_fit, y = 2*se)) +
+  geom_line(mapping = aes(x = mean_fit, y = -2*se)) +
+  labs(x = "mean fitted value in bin",
+       y = "mean residual in bin")
+```
+
+- Write a paragraph discussing what you learn from your graph of residuals versus fitted values. Does this model assessment raise any concerns about your model?
+
+After I graphed both my fit_7 and fit_8 models to see if there was anything different between the two. However, since there was not a large difference in the outcome, I decided to chose model_8 that removes the politics variable. For my model, this assessment did not raise any concerns. This is due to the fact that all of the residuals are inside of the 2-standard-error outline. There is also no curvature or pattern seen in the graph, even with 8 bins in the graph.
+
+# Part 3: The "secret weapon"
+
+Using the code that I provide as a guide, have R fit a multiple logistic regression model (your final model from part 2) for every year separately in your data set. Recenter predictor variables appropriately so that you can interpret the model intercept and all main effects directly.
+
+Graph the coefficients versus year, using standard errors to indicate plausible sampling errors.
+
+Write about what you observe in this time-series graph of the coefficients. Include some interpretations of the coefficients using tolls such as the divide-by-4 rule or odds ratio. Discuss the trends in the coefficients over time. Which predictive factors seem to stay roughly the same throughout the GSS survey years you studied? Which predictive factors change? How do those factors change? What do you learn from what changes and what stay the same?
+
+```{r}
+fits <- tibble()
+for (yr in space_filtered %>% pull(year) %>% unique) {
+  dx <- space_filtered %>% filter(year == yr)
+  fx <- glm(too_much ~ age+degree+sex+class_, family = binomial(link = "logit"), data = dx)
+  fits <- fits %>% rbind(tidy(fx) %>% select(term, estimate, std.error) %>% mutate(year = yr))
+}
+```
+
+```{r}
+fits
+summary(fit_7)
+```
+
+```{r}
+ggplot(data = fits) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_pointrange(mapping = aes(x = year, y = estimate,
+                                ymin = estimate - std.error,
+                                ymax = estimate + std.error), size = 0.1) +
+  facet_wrap(~term, scales = "free_y")
+```
+
+Write about what you observe in this time-series graph of the coefficients. Include some interpretations of the coefficients using tolls such as the divide-by-4 rule or odds ratio. Discuss the trends in the coefficients over time. Which predictive factors seem to stay roughly the same throughout the GSS survey years you studied? Which predictive factors change? How do those factors change? What do you learn from what changes and what stay the same?
+
+\_\_\_\_\_\_\_\_\_
+
+This time-series graph shows hows the effects of various predictors on the belief that the US spends too much on space exploration have changed across the years of the GSS survey. Each subplot above shows the estimated coefficient on the logit scale for a predictor in a logistic regression model, controlling for other variables.
+
+Starting with the intercept, which represents middle-aged, lower-class, politically moderate males with a bachelor's degree. For this group, the likelihood of believing that too much is being spent on space exploration has wavered throughout the years. Most of the years, the group stayed right below 0 on the logit scale at about a 44% chance of saying there is too much spending on space exploration (1/1+e\^-(-.25) = 0.44). There is a drastic uptick at about 1990, where the logit is 1.25 and there is a 77.7% chance of saying there's too much space spending.
+
+Some predictors show a lot of consistency. For example, class_Working class, class_Middle class, and class_Upper class coefficients hover at about zero across most years, suggesting that, relative to the lower class, social class identity hasn't had a strong or consistent influence on the beliefs of space funding. Similarly, the coefficient for ageold has remained relatively stable, indicating that older respondents have been just slightly more likely to view space exploration as over funded than middle-aged respondents, but the effect hasn't dramatically changed over time. Older people (ageold), who were the people older than 60, were generally a few percentage points more likely than middle aged people to say there's too much space spending. Meanwhile, younger people (ageyoung) were more likely to view space exploration funding as reasonable or too little. This gap was especially strong between 1990 and 2000, with the largest difference between the reference group of middle aged and the younger aged people having an about 42.5 percentage point difference in predicted probability in 1990 ((1.2/4)-(-.5/4)=0.425).
+
+Other factors tell more about the data. The coefficient for sex starts fairly negative, at about -0.75 or 18 percentage points, and then rises over the years. This suggests that the gender gap on space funding may be narrowing more over time. Meanwhile, the coefficients for degreeLess than High school and degreeHigh school remain substantially positive and fairly steady, implying that respondents with lower education have consistently been more inclined to think that space exploration receives too much funding compared to those with a bachelor's degree.
+
+Something interesting is seen in the degreeGraduate coefficient, which has a lot more fluctuations than expected. In the earlier years before 1984, those with graduate degrees were more likely to think that there is too much spending for space exploration. However, at about 1985 it shifts and stays consistently closer to 0 for the rest of the survey years.
+
+When examining the data, the graph reveals both stability and change in public opinion predictors. Factors like education level and sex are clearly different between the types of variable, which the influence of social class appears minimal. These patterns highlight have certain variables, especially the ones related to education, persist over time.
